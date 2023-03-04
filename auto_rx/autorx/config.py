@@ -295,6 +295,9 @@ def read_auto_rx_config(filename, no_sdr_test=False):
         # Position Filtering
         auto_rx_config["max_altitude"] = config.getint("filtering", "max_altitude")
         auto_rx_config["max_radius_km"] = config.getint("filtering", "max_radius_km")
+        
+        auto_rx_config['decode_limit_period'] = config.getint('filtering', 'decode_limit_period')
+        auto_rx_config['decode_limit_min_alt'] = config.getint('filtering', 'decode_limit_min_alt')
 
         # Habitat Settings
         # Deprecated from v1.5.0

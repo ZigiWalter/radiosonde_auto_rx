@@ -142,7 +142,9 @@ class SondeDecoder(object):
         rs92_ephemeris=None,
         rs41_drift_tweak=False,
         experimental_decoder=False,
-        save_raw_hex=False
+        save_raw_hex=False,
+        decode_limit_period = 0,
+        decode_limit_min_alt=3000
     ):
         """ Initialise and start a Sonde Decoder.
 
@@ -211,6 +213,9 @@ class SondeDecoder(object):
         self.experimental_decoder = experimental_decoder
         self.save_raw_hex = save_raw_hex
         self.raw_file = None
+        
+        self.decode_limit_period = decode_limit_period
+        self.decode_limit_min_alt = decode_limit_min_alt
 
         # Raw hex filename
         if self.save_raw_hex:
@@ -241,6 +246,8 @@ class SondeDecoder(object):
         self.decoder = None
 
         self.exit_state = "OK"
+
+        self.firstPacket=0
 
         # UDP Mode - Accepts incoming data via UDP.
         self.udp_mode = sonde_type == "UDP"
@@ -1303,6 +1310,8 @@ class SondeDecoder(object):
                     # If we decoded a valid JSON blob, update our last-packet time.
                     if _ok:
                         _last_packet = time.time()
+                        if self.firstPacket==0:
+                            self.firstPacket=time.time()
 
             # Check timeout counter.
             if (
@@ -1638,7 +1647,12 @@ class SondeDecoder(object):
                 self.decoder_running = False
                 return False
 
-
+            if((self.decode_limit_period>0) and (self.firstPacket>0) and ((time.time()-self.firstPacket)>(self.decode_limit_period*60)) and (_telemetry['alt']>self.decode_limit_min_alt)):
+                self.log_info("Reached decode limit period: %.3fMHz, (%.6f,%.6f)" % (self.sonde_freq/1e6,_telemetry['lat'],_telemetry['lon']))
+                self.exit_state = "LIMIT"
+                self.decoder_running=False;
+                return False
+            
             # If the telemetry is OK, send to the exporter functions (if we have any).
             if self.exporters is None:
                 return
