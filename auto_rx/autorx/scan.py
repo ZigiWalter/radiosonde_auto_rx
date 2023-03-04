@@ -24,7 +24,7 @@ from .utils import (
     peak_decimation,
 )
 from .sdr_wrappers import test_sdr, reset_sdr, get_sdr_name, get_sdr_iq_cmd, get_sdr_fm_cmd, get_power_spectrum
-
+import operator
 
 try:
     from .web import flask_emit_event
@@ -649,6 +649,8 @@ class SondeScanner(object):
         temporary_block_list={},
         temporary_block_time=60,
         ngp_tweak=False,
+        decode_attemp_dict = [],
+        enable_peak_reorder = False
     ):
         """Initialise a Sonde Scanner Object.
 
@@ -749,6 +751,9 @@ class SondeScanner(object):
                 % str(list(self.temporary_block_list.keys()))
             )
 
+        self.decode_attemp_dict = decode_attemp_dict
+        self.enable_peak_reorder = enable_peak_reorder
+        
         # Error counter.
         self.error_retries = 0
 
@@ -1022,6 +1027,18 @@ class SondeScanner(object):
                     )
 
             self.temporary_block_list_lock.release()
+
+            if(self.enable_peak_reorder):
+                #Reorder list moving recently decoded frequencies to the end               
+                sorted_attempts = sorted(self.decode_attemp_dict.items(), key=operator.itemgetter(1))
+                for attempt in sorted_attempts:
+                    pFreq=attempt[0]
+                    _index = np.argwhere(np.abs(peak_frequencies-pFreq) <= (self.quantization))
+                    #print("Found " +str(pFreq) + " in index:\n" + str(_index))
+                    items=peak_frequencies[_index]
+                    #print("removing items:\n" +str(items))                    
+                    peak_frequencies=np.delete(peak_frequencies, _index)
+                    peak_frequencies=np.append(peak_frequencies,items)
 
             # Get the level of our peak search results, to send to the web client.
             # This is actually a bit of a pain to do...

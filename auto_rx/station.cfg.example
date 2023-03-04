@@ -622,3 +622,9 @@ radius_temporary_block = False
 # This helps catch glitches around 00Z UTC from iMet & LMS6 sondes, and bad CRC checks from
 # DFM sondes.
 sonde_time_threshold = 3
+
+#Max consecutive decoding period in minutes.
+decode_limit_period = 5
+
+#Do not limit decoding period below this altitute (meters).
+decode_limit_min_alt = 4000

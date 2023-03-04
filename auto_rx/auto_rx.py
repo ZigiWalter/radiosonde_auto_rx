@@ -18,6 +18,7 @@ import traceback
 import os
 from dateutil.parser import parse
 from queue import Queue
+import numpy as np
 
 if sys.version_info < (3, 6):
     print("CRITICAL - radiosonde_auto_rx requires Python 3.6 or newer!")
@@ -87,6 +88,7 @@ gpsd_adaptor = None
 # This contains frequncies that should be blocked for a short amount of time.
 temporary_block_list = {}
 
+decode_attemp_dict = {}
 
 def allocate_sdr(check_only=False, task_description=""):
     """Allocate an un-used SDR for a task.
@@ -121,6 +123,7 @@ def allocate_sdr(check_only=False, task_description=""):
 def start_scanner():
     """Start a scanner thread on the first available SDR"""
     global config, RS_PATH, temporary_block_list
+    global decode_attemp_dict
 
     if "SCAN" in autorx.task_list:
         # Already a scanner running! Return.
@@ -172,6 +175,8 @@ def start_scanner():
             save_detection_audio=config["save_detection_audio"],
             temporary_block_list=temporary_block_list,
             temporary_block_time=config["temporary_block_time"],
+            decode_attemp_dict = decode_attemp_dict,           
+            enable_peak_reorder = config['decode_limit_period']>0,
         )
 
         # Add a reference into the sdr_list entry
@@ -210,6 +215,7 @@ def start_decoder(freq, sonde_type, continuous=False):
 
     """
     global config, RS_PATH, exporter_functions, rs92_ephemeris, temporary_block_list
+    global decode_attemp_dict
 
     # Allocate a SDR.
     _device_idx = allocate_sdr(
@@ -261,7 +267,9 @@ def start_decoder(freq, sonde_type, continuous=False):
             rs92_ephemeris=rs92_ephemeris,
             rs41_drift_tweak=config["rs41_drift_tweak"],
             experimental_decoder=config["experimental_decoders"][_exp_sonde_type],
-            save_raw_hex=config["save_raw_hex"]
+            save_raw_hex=config["save_raw_hex"],
+            decode_limit_period = config['decode_limit_period'],
+            decode_limit_min_alt = config['decode_limit_min_alt']
         )
         autorx.sdr_list[_device_idx]["task"] = autorx.task_list[freq]["task"]
 
@@ -277,6 +285,7 @@ def handle_scan_results():
     - If there is no free SDR, but a scanner is running, stop the scanner and start decoding.
     """
     global config, temporary_block_list
+    global decode_attemp_dict
 
     if autorx.scan_results.qsize() > 0:
         # Grab the latest detections from the scan result queue.
@@ -389,6 +398,7 @@ def handle_scan_results():
 
 def clean_task_list():
     """Check the task list to see if any tasks have stopped running. If so, release the associated SDR"""
+    global decode_attemp_dict
 
     for _key in autorx.task_list.copy().keys():
         # Attempt to get the state of the task
@@ -437,10 +447,25 @@ def clean_task_list():
                 autorx.sdr_list[_task_sdr]["in_use"] = False
                 autorx.sdr_list[_task_sdr]["task"] = None
 
+            if (config['decode_limit_period']>0):
+                #logging.info("Task Manager - Storing frequency %.3f MHz" % (_key/1e6))
+                for attemptFreq in decode_attemp_dict.copy().keys():
+                    if np.abs(attemptFreq-_key)<(config['quantization']/2.0):
+                        decode_attemp_dict.pop(attemptFreq)
+                        #print("Reordering:" +str(attemptFreq))
+                decode_attemp_dict[_key]=time.time()
+
             # Pop the task from the task list.
             autorx.task_list.pop(_key)
             # Indicate to the web client that the task list has been updated.
             flask_emit_event("task_event")
+
+    if (config['decode_limit_period']>0):
+        #logging.info("Task Manager - Storing frequency %.3f MHz" % (_key/1e6))
+        for attemptFreq in decode_attemp_dict.copy().keys():
+            if((time.time()-decode_attemp_dict[attemptFreq])>=((2*len(decode_attemp_dict.copy().keys())+1)*config['decode_limit_period']*60)):
+                decode_attemp_dict.pop(attemptFreq)
+                #print("Removing:" +str(attemptFreq))
 
     # Clean out the temporary block list of old entries.
     for _freq in temporary_block_list.copy().keys():

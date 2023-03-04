@@ -14,6 +14,7 @@ from queue import Queue
 
 __version__ = "1.6.0"
 
+__version__ += "-Z2"
 
 # Global Variables
 
